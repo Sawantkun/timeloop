@@ -1,0 +1,370 @@
+import 'package:flutter/material.dart';
+
+// ─── Skill Model ───────────────────────────────────────────────
+class Skill {
+  final String id;
+  final String name;
+  final String category;
+  final String emoji;
+  final int level; // 1=Beginner, 2=Intermediate, 3=Expert
+  final double hourlyCredits;
+
+  const Skill({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.emoji,
+    required this.level,
+    this.hourlyCredits = 1.0,
+  });
+
+  String get levelLabel => ['', 'Beginner', 'Intermediate', 'Expert'][level];
+
+  Color get levelColor => [
+    Colors.transparent,
+    const Color(0xFF10B981),
+    const Color(0xFF3B82F6),
+    const Color(0xFF7C3AED),
+  ][level];
+}
+
+// ─── User Model ────────────────────────────────────────────────
+class UserModel {
+  final String id;
+  final String name;
+  final String email;
+  final String? avatarUrl;
+  final String bio;
+  final String location;
+  final double rating;
+  final int reviewCount;
+  final int completedSwaps;
+  final List<Skill> skillsOffered;
+  final List<Skill> skillsNeeded;
+  final double walletBalance;
+  final DateTime joinedAt;
+  final bool isOnline;
+  final List<String> availability; // e.g. ['Mon', 'Wed', 'Fri']
+
+  const UserModel({
+    required this.id,
+    required this.name,
+    required this.email,
+    this.avatarUrl,
+    required this.bio,
+    required this.location,
+    required this.rating,
+    required this.reviewCount,
+    required this.completedSwaps,
+    required this.skillsOffered,
+    required this.skillsNeeded,
+    required this.walletBalance,
+    required this.joinedAt,
+    this.isOnline = false,
+    required this.availability,
+  });
+
+  UserModel copyWith({
+    String? id,
+    String? name,
+    String? email,
+    String? avatarUrl,
+    String? bio,
+    String? location,
+    double? rating,
+    int? reviewCount,
+    int? completedSwaps,
+    List<Skill>? skillsOffered,
+    List<Skill>? skillsNeeded,
+    double? walletBalance,
+    DateTime? joinedAt,
+    bool? isOnline,
+    List<String>? availability,
+  }) {
+    return UserModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      bio: bio ?? this.bio,
+      location: location ?? this.location,
+      rating: rating ?? this.rating,
+      reviewCount: reviewCount ?? this.reviewCount,
+      completedSwaps: completedSwaps ?? this.completedSwaps,
+      skillsOffered: skillsOffered ?? this.skillsOffered,
+      skillsNeeded: skillsNeeded ?? this.skillsNeeded,
+      walletBalance: walletBalance ?? this.walletBalance,
+      joinedAt: joinedAt ?? this.joinedAt,
+      isOnline: isOnline ?? this.isOnline,
+      availability: availability ?? this.availability,
+    );
+  }
+}
+
+// ─── Transaction Model ─────────────────────────────────────────
+enum TransactionType { earned, spent, bonus, refund }
+
+class Transaction {
+  final String id;
+  final TransactionType type;
+  final double amount;
+  final String description;
+  final String? counterpartName;
+  final DateTime createdAt;
+
+  const Transaction({
+    required this.id,
+    required this.type,
+    required this.amount,
+    required this.description,
+    this.counterpartName,
+    required this.createdAt,
+  });
+
+  bool get isCredit => type == TransactionType.earned || type == TransactionType.bonus || type == TransactionType.refund;
+}
+
+// ─── Booking / Swap Model ──────────────────────────────────────
+enum SwapStatus { pending, confirmed, inProgress, completed, cancelled, disputed }
+
+class Booking {
+  final String id;
+  final String requesterId;
+  final String providerId;
+  final String requesterName;
+  final String providerName;
+  final String? requesterAvatar;
+  final String? providerAvatar;
+  final Skill skill;
+  final SwapStatus status;
+  final DateTime scheduledAt;
+  final int durationMinutes;
+  final double creditsAmount;
+  final String? notes;
+  final DateTime createdAt;
+  final double? requesterRating;
+  final double? providerRating;
+
+  const Booking({
+    required this.id,
+    required this.requesterId,
+    required this.providerId,
+    required this.requesterName,
+    required this.providerName,
+    this.requesterAvatar,
+    this.providerAvatar,
+    required this.skill,
+    required this.status,
+    required this.scheduledAt,
+    required this.durationMinutes,
+    required this.creditsAmount,
+    this.notes,
+    required this.createdAt,
+    this.requesterRating,
+    this.providerRating,
+  });
+
+  String get statusLabel {
+    switch (status) {
+      case SwapStatus.pending: return 'Pending';
+      case SwapStatus.confirmed: return 'Confirmed';
+      case SwapStatus.inProgress: return 'In Progress';
+      case SwapStatus.completed: return 'Completed';
+      case SwapStatus.cancelled: return 'Cancelled';
+      case SwapStatus.disputed: return 'Disputed';
+    }
+  }
+
+  Color get statusColor {
+    switch (status) {
+      case SwapStatus.pending: return const Color(0xFFF59E0B);
+      case SwapStatus.confirmed: return const Color(0xFF3B82F6);
+      case SwapStatus.inProgress: return const Color(0xFF7C3AED);
+      case SwapStatus.completed: return const Color(0xFF10B981);
+      case SwapStatus.cancelled: return const Color(0xFF6B7280);
+      case SwapStatus.disputed: return const Color(0xFFEF4444);
+    }
+  }
+}
+
+// ─── Message Model ─────────────────────────────────────────────
+class ChatMessage {
+  final String id;
+  final String senderId;
+  final String text;
+  final DateTime sentAt;
+  final bool isRead;
+  final MessageType type;
+
+  const ChatMessage({
+    required this.id,
+    required this.senderId,
+    required this.text,
+    required this.sentAt,
+    this.isRead = false,
+    this.type = MessageType.text,
+  });
+}
+
+enum MessageType { text, swapRequest, swapConfirmed }
+
+class Conversation {
+  final String id;
+  final String otherUserId;
+  final String otherUserName;
+  final String? otherUserAvatar;
+  final bool otherUserOnline;
+  final String lastMessage;
+  final DateTime lastMessageAt;
+  final int unreadCount;
+  final List<ChatMessage> messages;
+
+  const Conversation({
+    required this.id,
+    required this.otherUserId,
+    required this.otherUserName,
+    this.otherUserAvatar,
+    this.otherUserOnline = false,
+    required this.lastMessage,
+    required this.lastMessageAt,
+    this.unreadCount = 0,
+    required this.messages,
+  });
+
+  Conversation copyWith({
+    List<ChatMessage>? messages,
+    String? lastMessage,
+    DateTime? lastMessageAt,
+    int? unreadCount,
+  }) {
+    return Conversation(
+      id: id,
+      otherUserId: otherUserId,
+      otherUserName: otherUserName,
+      otherUserAvatar: otherUserAvatar,
+      otherUserOnline: otherUserOnline,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      unreadCount: unreadCount ?? this.unreadCount,
+      messages: messages ?? this.messages,
+    );
+  }
+}
+
+// ─── Review Model ──────────────────────────────────────────────
+class Review {
+  final String id;
+  final String reviewerId;
+  final String reviewerName;
+  final String? reviewerAvatar;
+  final double rating;
+  final String comment;
+  final DateTime createdAt;
+  final Skill skill;
+
+  const Review({
+    required this.id,
+    required this.reviewerId,
+    required this.reviewerName,
+    this.reviewerAvatar,
+    required this.rating,
+    required this.comment,
+    required this.createdAt,
+    required this.skill,
+  });
+}
+
+// ─── Dispute Model ─────────────────────────────────────────────
+enum DisputeStatus { open, underReview, resolved, closed }
+enum DisputeReason { noShow, poorQuality, wrongSkill, paymentIssue, other }
+
+class Dispute {
+  final String id;
+  final String bookingId;
+  final String complainantId;
+  final String complainantName;
+  final String? complainantAvatar;
+  final String respondentName;
+  final DisputeReason reason;
+  final DisputeStatus status;
+  final String description;
+  final DateTime createdAt;
+  final String? resolution;
+  final double? refundAmount;
+
+  const Dispute({
+    required this.id,
+    required this.bookingId,
+    required this.complainantId,
+    required this.complainantName,
+    this.complainantAvatar,
+    required this.respondentName,
+    required this.reason,
+    required this.status,
+    required this.description,
+    required this.createdAt,
+    this.resolution,
+    this.refundAmount,
+  });
+
+  String get reasonLabel {
+    switch (reason) {
+      case DisputeReason.noShow: return 'No Show';
+      case DisputeReason.poorQuality: return 'Poor Quality';
+      case DisputeReason.wrongSkill: return 'Wrong Skill Level';
+      case DisputeReason.paymentIssue: return 'Payment Issue';
+      case DisputeReason.other: return 'Other';
+    }
+  }
+
+  String get statusLabel {
+    switch (status) {
+      case DisputeStatus.open: return 'Open';
+      case DisputeStatus.underReview: return 'Under Review';
+      case DisputeStatus.resolved: return 'Resolved';
+      case DisputeStatus.closed: return 'Closed';
+    }
+  }
+
+  Color get statusColor {
+    switch (status) {
+      case DisputeStatus.open: return const Color(0xFFEF4444);
+      case DisputeStatus.underReview: return const Color(0xFFF59E0B);
+      case DisputeStatus.resolved: return const Color(0xFF10B981);
+      case DisputeStatus.closed: return const Color(0xFF6B7280);
+    }
+  }
+}
+
+// ─── Match Model ───────────────────────────────────────────────
+class SkillMatch {
+  final UserModel user;
+  final Skill theyOffer;
+  final Skill youNeed;
+  final double matchScore; // 0.0 to 1.0
+  final List<String> matchReasons;
+  final double distanceKm;
+
+  const SkillMatch({
+    required this.user,
+    required this.theyOffer,
+    required this.youNeed,
+    required this.matchScore,
+    required this.matchReasons,
+    required this.distanceKm,
+  });
+
+  String get scoreLabel {
+    if (matchScore >= 0.9) return 'Perfect Match';
+    if (matchScore >= 0.75) return 'Great Match';
+    if (matchScore >= 0.6) return 'Good Match';
+    return 'Possible Match';
+  }
+
+  Color get scoreColor {
+    if (matchScore >= 0.9) return const Color(0xFF10B981);
+    if (matchScore >= 0.75) return const Color(0xFF3B82F6);
+    if (matchScore >= 0.6) return const Color(0xFF7C3AED);
+    return const Color(0xFF6B7280);
+  }
+}
