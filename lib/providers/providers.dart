@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/models.dart';
 import '../core/mock_data.dart';
 
@@ -44,6 +46,9 @@ class ThemeProvider extends ChangeNotifier {
 enum AuthStatus { initial, loading, authenticated, unauthenticated, error }
 
 class AuthProvider extends ChangeNotifier {
+  final fb_auth.FirebaseAuth _auth = fb_auth.FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
   AuthStatus _status = AuthStatus.initial;
   UserModel? _currentUser;
   String? _errorMessage;
@@ -54,17 +59,25 @@ class AuthProvider extends ChangeNotifier {
   bool get isAuthenticated => _status == AuthStatus.authenticated;
 
   AuthProvider() {
-    _checkAuthState();
+    _auth.authStateChanges().listen(_onAuthStateChanged);
   }
 
-  Future<void> _checkAuthState() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    final prefs = await SharedPreferences.getInstance();
-    final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
-    if (isLoggedIn) {
-      _currentUser = MockUsers.currentUser;
-      _status = AuthStatus.authenticated;
-    } else {
+  Future<void> _onAuthStateChanged(fb_auth.User? user) async {
+    if (user == null) {
+      _currentUser = null;
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      return;
+    }
+    try {
+      final doc = await _db.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        _currentUser = UserModel.fromJson(doc.data()!);
+        _status = AuthStatus.authenticated;
+      } else {
+        _status = AuthStatus.unauthenticated;
+      }
+    } catch (_) {
       _status = AuthStatus.unauthenticated;
     }
     notifyListeners();
@@ -74,65 +87,69 @@ class AuthProvider extends ChangeNotifier {
     _status = AuthStatus.loading;
     _errorMessage = null;
     notifyListeners();
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    // Mock validation
-    if (email.isEmpty || password.isEmpty) {
+    try {
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return true;
+    } on fb_auth.FirebaseAuthException catch (e) {
       _status = AuthStatus.error;
-      _errorMessage = 'Please fill in all fields.';
+      _errorMessage = e.message ?? 'Invalid email or password.';
       notifyListeners();
       return false;
     }
-
-    if (password.length < 6) {
-      _status = AuthStatus.error;
-      _errorMessage = 'Invalid email or password.';
-      notifyListeners();
-      return false;
-    }
-
-    _currentUser = MockUsers.currentUser;
-    _status = AuthStatus.authenticated;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_logged_in', true);
-    notifyListeners();
-    return true;
   }
 
   Future<bool> signUp(String name, String email, String password) async {
     _status = AuthStatus.loading;
     _errorMessage = null;
     notifyListeners();
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+    try {
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      await cred.user!.updateDisplayName(name);
+      final user = UserModel(
+        id: cred.user!.uid,
+        name: name,
+        email: email,
+        bio: '',
+        location: '',
+        rating: 0.0,
+        reviewCount: 0,
+        completedSwaps: 0,
+        skillsOffered: [],
+        skillsNeeded: [],
+        walletBalance: 5.0,
+        joinedAt: DateTime.now(),
+        availability: [],
+      );
+      await _db.collection('users').doc(user.id).set(user.toJson());
+      _currentUser = user;
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+      return true;
+    } on fb_auth.FirebaseAuthException catch (e) {
       _status = AuthStatus.error;
-      _errorMessage = 'Please fill in all fields.';
+      _errorMessage = e.message ?? 'Signup failed.';
       notifyListeners();
       return false;
     }
-
-    _currentUser = MockUsers.currentUser.copyWith(name: name, email: email);
-    _status = AuthStatus.authenticated;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_logged_in', true);
-    notifyListeners();
-    return true;
   }
 
   Future<void> signOut() async {
+    await _auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_logged_in', false);
     notifyListeners();
   }
 
   Future<bool> resetPassword(String email) async {
-    await Future.delayed(const Duration(seconds: 1));
-    return true;
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   void updateUser(UserModel user) {

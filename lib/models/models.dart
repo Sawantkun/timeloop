@@ -20,6 +20,24 @@ class Skill {
 
   String get levelLabel => ['', 'Beginner', 'Intermediate', 'Expert'][level];
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'category': category,
+        'emoji': emoji,
+        'level': level,
+        'hourlyCredits': hourlyCredits,
+      };
+
+  factory Skill.fromJson(Map<String, dynamic> json) => Skill(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        category: json['category'] as String,
+        emoji: json['emoji'] as String,
+        level: (json['level'] as num).toInt(),
+        hourlyCredits: (json['hourlyCredits'] as num?)?.toDouble() ?? 1.0,
+      );
+
   Color get levelColor => [
     Colors.transparent,
     const Color(0xFF10B981),
@@ -63,6 +81,51 @@ class UserModel {
     this.isOnline = false,
     required this.availability,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'email': email,
+        'avatarUrl': avatarUrl,
+        'bio': bio,
+        'location': location,
+        'rating': rating,
+        'reviewCount': reviewCount,
+        'completedSwaps': completedSwaps,
+        'skillsOffered': skillsOffered.map((s) => s.toJson()).toList(),
+        'skillsNeeded': skillsNeeded.map((s) => s.toJson()).toList(),
+        'walletBalance': walletBalance,
+        'joinedAt': joinedAt.toIso8601String(),
+        'isOnline': isOnline,
+        'availability': availability,
+      };
+
+  factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        email: json['email'] as String,
+        avatarUrl: json['avatarUrl'] as String?,
+        bio: json['bio'] as String? ?? '',
+        location: json['location'] as String? ?? '',
+        rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+        reviewCount: (json['reviewCount'] as num?)?.toInt() ?? 0,
+        completedSwaps: (json['completedSwaps'] as num?)?.toInt() ?? 0,
+        skillsOffered: (json['skillsOffered'] as List<dynamic>?)
+                ?.map((s) => Skill.fromJson(s as Map<String, dynamic>))
+                .toList() ??
+            [],
+        skillsNeeded: (json['skillsNeeded'] as List<dynamic>?)
+                ?.map((s) => Skill.fromJson(s as Map<String, dynamic>))
+                .toList() ??
+            [],
+        walletBalance:
+            (json['walletBalance'] as num?)?.toDouble() ?? 0.0,
+        joinedAt: json['joinedAt'] != null
+            ? DateTime.parse(json['joinedAt'] as String)
+            : DateTime.now(),
+        isOnline: json['isOnline'] as bool? ?? false,
+        availability: List<String>.from(json['availability'] as List? ?? []),
+      );
 
   UserModel copyWith({
     String? id,
