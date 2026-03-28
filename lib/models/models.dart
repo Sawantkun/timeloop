@@ -101,9 +101,9 @@ class UserModel {
       };
 
   factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        email: json['email'] as String,
+        id: (json['id'] as String?) ?? '',
+        name: (json['name'] as String?) ?? '',
+        email: (json['email'] as String?) ?? '',
         avatarUrl: json['avatarUrl'] as String?,
         bio: json['bio'] as String? ?? '',
         location: json['location'] as String? ?? '',
@@ -185,6 +185,29 @@ class Transaction {
   });
 
   bool get isCredit => type == TransactionType.earned || type == TransactionType.bonus || type == TransactionType.refund;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type.name,
+    'amount': amount,
+    'description': description,
+    'counterpartName': counterpartName,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
+    id: (json['id'] as String?) ?? '',
+    type: TransactionType.values.firstWhere(
+      (t) => t.name == json['type'],
+      orElse: () => TransactionType.earned,
+    ),
+    amount: (json['amount'] as num?)?.toDouble() ?? 0,
+    description: (json['description'] as String?) ?? '',
+    counterpartName: json['counterpartName'] as String?,
+    createdAt: json['createdAt'] != null
+        ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+        : DateTime.now(),
+  );
 }
 
 // ─── Booking / Swap Model ──────────────────────────────────────
@@ -248,6 +271,61 @@ class Booking {
       case SwapStatus.disputed: return const Color(0xFFEF4444);
     }
   }
+
+  Booking copyWith({SwapStatus? status}) => Booking(
+    id: id, requesterId: requesterId, providerId: providerId,
+    requesterName: requesterName, providerName: providerName,
+    requesterAvatar: requesterAvatar, providerAvatar: providerAvatar,
+    skill: skill, status: status ?? this.status,
+    scheduledAt: scheduledAt, durationMinutes: durationMinutes,
+    creditsAmount: creditsAmount, notes: notes, createdAt: createdAt,
+    requesterRating: requesterRating, providerRating: providerRating,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'requesterId': requesterId,
+    'providerId': providerId,
+    'requesterName': requesterName,
+    'providerName': providerName,
+    'requesterAvatar': requesterAvatar,
+    'providerAvatar': providerAvatar,
+    'skill': skill.toJson(),
+    'status': status.name,
+    'scheduledAt': scheduledAt.toIso8601String(),
+    'durationMinutes': durationMinutes,
+    'creditsAmount': creditsAmount,
+    'notes': notes,
+    'createdAt': createdAt.toIso8601String(),
+    'requesterRating': requesterRating,
+    'providerRating': providerRating,
+  };
+
+  factory Booking.fromJson(Map<String, dynamic> json) => Booking(
+    id: (json['id'] as String?) ?? '',
+    requesterId: (json['requesterId'] as String?) ?? '',
+    providerId: (json['providerId'] as String?) ?? '',
+    requesterName: (json['requesterName'] as String?) ?? '',
+    providerName: (json['providerName'] as String?) ?? '',
+    requesterAvatar: json['requesterAvatar'] as String?,
+    providerAvatar: json['providerAvatar'] as String?,
+    skill: Skill.fromJson(json['skill'] as Map<String, dynamic>? ?? {}),
+    status: SwapStatus.values.firstWhere(
+      (s) => s.name == json['status'],
+      orElse: () => SwapStatus.pending,
+    ),
+    scheduledAt: json['scheduledAt'] != null
+        ? DateTime.tryParse(json['scheduledAt'] as String) ?? DateTime.now()
+        : DateTime.now(),
+    durationMinutes: (json['durationMinutes'] as int?) ?? 60,
+    creditsAmount: (json['creditsAmount'] as num?)?.toDouble() ?? 1.0,
+    notes: json['notes'] as String?,
+    createdAt: json['createdAt'] != null
+        ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+        : DateTime.now(),
+    requesterRating: (json['requesterRating'] as num?)?.toDouble(),
+    providerRating: (json['providerRating'] as num?)?.toDouble(),
+  );
 }
 
 // ─── Message Model ─────────────────────────────────────────────
@@ -267,6 +345,29 @@ class ChatMessage {
     this.isRead = false,
     this.type = MessageType.text,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'senderId': senderId,
+    'text': text,
+    'sentAt': sentAt.toIso8601String(),
+    'isRead': isRead,
+    'type': type.name,
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    id: (json['id'] as String?) ?? '',
+    senderId: (json['senderId'] as String?) ?? '',
+    text: (json['text'] as String?) ?? '',
+    sentAt: json['sentAt'] != null
+        ? DateTime.tryParse(json['sentAt'] as String) ?? DateTime.now()
+        : DateTime.now(),
+    isRead: json['isRead'] as bool? ?? false,
+    type: MessageType.values.firstWhere(
+      (t) => t.name == json['type'],
+      orElse: () => MessageType.text,
+    ),
+  );
 }
 
 enum MessageType { text, swapRequest, swapConfirmed }
@@ -299,19 +400,45 @@ class Conversation {
     String? lastMessage,
     DateTime? lastMessageAt,
     int? unreadCount,
+    bool? otherUserOnline,
   }) {
     return Conversation(
       id: id,
       otherUserId: otherUserId,
       otherUserName: otherUserName,
       otherUserAvatar: otherUserAvatar,
-      otherUserOnline: otherUserOnline,
+      otherUserOnline: otherUserOnline ?? this.otherUserOnline,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       unreadCount: unreadCount ?? this.unreadCount,
       messages: messages ?? this.messages,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'otherUserId': otherUserId,
+    'otherUserName': otherUserName,
+    'otherUserAvatar': otherUserAvatar,
+    'otherUserOnline': otherUserOnline,
+    'lastMessage': lastMessage,
+    'lastMessageAt': lastMessageAt.toIso8601String(),
+    'unreadCount': unreadCount,
+  };
+
+  factory Conversation.fromJson(Map<String, dynamic> json, {List<ChatMessage> messages = const []}) => Conversation(
+    id: (json['id'] as String?) ?? '',
+    otherUserId: (json['otherUserId'] as String?) ?? '',
+    otherUserName: (json['otherUserName'] as String?) ?? '',
+    otherUserAvatar: json['otherUserAvatar'] as String?,
+    otherUserOnline: json['otherUserOnline'] as bool? ?? false,
+    lastMessage: (json['lastMessage'] as String?) ?? '',
+    lastMessageAt: json['lastMessageAt'] != null
+        ? DateTime.tryParse(json['lastMessageAt'] as String) ?? DateTime.now()
+        : DateTime.now(),
+    unreadCount: (json['unreadCount'] as int?) ?? 0,
+    messages: messages,
+  );
 }
 
 // ─── Review Model ──────────────────────────────────────────────

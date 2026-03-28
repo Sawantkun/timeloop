@@ -99,6 +99,7 @@ class _BookingScreenState extends State<BookingScreen> {
     // Book
     final bookings = context.read<BookingsProvider>();
     final wallet = context.read<WalletProvider>();
+    final currentUser = context.read<AuthProvider>().currentUser;
 
     final dt = _selectedDate!;
     final timeParts = _selectedTime!.replaceAll(' AM', '').replaceAll(' PM', '').split(':');
@@ -125,6 +126,8 @@ class _BookingScreenState extends State<BookingScreen> {
     }
 
     await bookings.createBooking(
+      requesterId: currentUser?.id ?? '',
+      requesterName: currentUser?.name ?? '',
       providerId: widget.provider.id,
       providerName: widget.provider.name,
       skill: _selectedSkill!,

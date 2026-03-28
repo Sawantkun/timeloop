@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../models/models.dart';
-import '../core/mock_data.dart';
 
 // ─── Theme Provider ────────────────────────────────────────────
 class ThemeProvider extends ChangeNotifier {
@@ -47,7 +46,7 @@ enum AuthStatus { initial, loading, authenticated, unauthenticated, error }
 
 class AuthProvider extends ChangeNotifier {
   final fb_auth.FirebaseAuth _auth = fb_auth.FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final fs.FirebaseFirestore _db = fs.FirebaseFirestore.instance;
 
   AuthStatus _status = AuthStatus.initial;
   UserModel? _currentUser;
@@ -160,58 +159,92 @@ class AuthProvider extends ChangeNotifier {
 
 // ─── Wallet Provider ───────────────────────────────────────────
 class WalletProvider extends ChangeNotifier {
+  final fs.FirebaseFirestore _db = fs.FirebaseFirestore.instance;
+
   double _balance = 0;
   List<Transaction> _transactions = [];
   bool _isLoading = false;
+  String? _userId;
 
   double get balance => _balance;
   List<Transaction> get transactions => _transactions;
   bool get isLoading => _isLoading;
 
   void init(String userId) {
-    _balance = MockUsers.currentUser.walletBalance;
-    _transactions = MockTransactions.getForUser(userId);
+    if (_userId == userId) return;
+    _userId = userId;
+    _load(userId);
+  }
+
+  void clear() {
+    _balance = 0;
+    _transactions = [];
+    _userId = null;
+    notifyListeners();
+  }
+
+  Future<void> _load(String userId) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      // Load balance from user doc
+      final userDoc = await _db.collection('users').doc(userId).get();
+      _balance = (userDoc.data()?['walletBalance'] as num?)?.toDouble() ?? 0.0;
+
+      // Load transactions subcollection
+      final snap = await _db
+          .collection('users').doc(userId).collection('transactions')
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .get();
+      _transactions = snap.docs.map((d) => Transaction.fromJson(d.data())).toList();
+    } catch (e) {
+      debugPrint('WalletProvider._load error: $e');
+    }
+    _isLoading = false;
     notifyListeners();
   }
 
   Future<void> addCredits(double amount, String description) async {
+    if (_userId == null) return;
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 500));
     _balance += amount;
-    _transactions.insert(
-      0,
-      Transaction(
-        id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
-        type: TransactionType.earned,
-        amount: amount,
-        description: description,
-        createdAt: DateTime.now(),
-      ),
+    final tx = Transaction(
+      id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
+      type: TransactionType.earned,
+      amount: amount,
+      description: description,
+      createdAt: DateTime.now(),
     );
+    _transactions.insert(0, tx);
     _isLoading = false;
     notifyListeners();
+    // Write to Firestore
+    await _db.collection('users').doc(_userId).update({'walletBalance': _balance});
+    await _db.collection('users').doc(_userId)
+        .collection('transactions').doc(tx.id).set(tx.toJson());
   }
 
   Future<bool> spendCredits(double amount, String description, String counterpartName) async {
-    if (_balance < amount) return false;
+    if (_balance < amount || _userId == null) return false;
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 500));
     _balance -= amount;
-    _transactions.insert(
-      0,
-      Transaction(
-        id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
-        type: TransactionType.spent,
-        amount: amount,
-        description: description,
-        counterpartName: counterpartName,
-        createdAt: DateTime.now(),
-      ),
+    final tx = Transaction(
+      id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
+      type: TransactionType.spent,
+      amount: amount,
+      description: description,
+      counterpartName: counterpartName,
+      createdAt: DateTime.now(),
     );
+    _transactions.insert(0, tx);
     _isLoading = false;
     notifyListeners();
+    await _db.collection('users').doc(_userId).update({'walletBalance': _balance});
+    await _db.collection('users').doc(_userId)
+        .collection('transactions').doc(tx.id).set(tx.toJson());
     return true;
   }
 
@@ -228,8 +261,11 @@ class WalletProvider extends ChangeNotifier {
 
 // ─── Bookings Provider ─────────────────────────────────────────
 class BookingsProvider extends ChangeNotifier {
+  final fs.FirebaseFirestore _db = fs.FirebaseFirestore.instance;
+
   List<Booking> _bookings = [];
   bool _isLoading = false;
+  String? _userId;
 
   List<Booking> get bookings => _bookings;
   bool get isLoading => _isLoading;
@@ -245,16 +281,48 @@ class BookingsProvider extends ChangeNotifier {
       .toList()
     ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
 
-  List<Booking> get disputed => _bookings
-      .where((b) => b.status == SwapStatus.disputed)
-      .toList();
+  List<Booking> get disputed => _bookings.where((b) => b.status == SwapStatus.disputed).toList();
 
   void init(String userId) {
-    _bookings = MockBookings.getForUser(userId);
+    if (_userId == userId) return;
+    _userId = userId;
+    _load(userId);
+  }
+
+  void clear() {
+    _bookings = [];
+    _userId = null;
+    notifyListeners();
+  }
+
+  Future<void> _load(String userId) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      // Fetch bookings where user is requester or provider (two queries, merged)
+      final asRequester = await _db.collection('bookings')
+          .where('requesterId', isEqualTo: userId).get();
+      final asProvider = await _db.collection('bookings')
+          .where('providerId', isEqualTo: userId).get();
+      final seen = <String>{};
+      _bookings = [
+        ...asRequester.docs,
+        ...asProvider.docs,
+      ]
+          .where((d) => seen.add(d.id))
+          .map((d) => Booking.fromJson(d.data()))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } catch (e) {
+      debugPrint('BookingsProvider._load error: $e');
+    }
+    _isLoading = false;
     notifyListeners();
   }
 
   Future<Booking?> createBooking({
+    required String requesterId,
+    required String requesterName,
     required String providerId,
     required String providerName,
     required Skill skill,
@@ -264,13 +332,12 @@ class BookingsProvider extends ChangeNotifier {
   }) async {
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(seconds: 1));
 
     final booking = Booking(
       id: 'booking_${DateTime.now().millisecondsSinceEpoch}',
-      requesterId: MockUsers.currentUser.id,
+      requesterId: requesterId,
       providerId: providerId,
-      requesterName: MockUsers.currentUser.name,
+      requesterName: requesterName,
       providerName: providerName,
       skill: skill,
       status: SwapStatus.pending,
@@ -284,42 +351,73 @@ class BookingsProvider extends ChangeNotifier {
     _bookings.insert(0, booking);
     _isLoading = false;
     notifyListeners();
+
+    await _db.collection('bookings').doc(booking.id).set(booking.toJson());
     return booking;
   }
 
   Future<void> updateStatus(String bookingId, SwapStatus status) async {
     final idx = _bookings.indexWhere((b) => b.id == bookingId);
     if (idx == -1) return;
-    _bookings[idx] = Booking(
-      id: _bookings[idx].id,
-      requesterId: _bookings[idx].requesterId,
-      providerId: _bookings[idx].providerId,
-      requesterName: _bookings[idx].requesterName,
-      providerName: _bookings[idx].providerName,
-      skill: _bookings[idx].skill,
-      status: status,
-      scheduledAt: _bookings[idx].scheduledAt,
-      durationMinutes: _bookings[idx].durationMinutes,
-      creditsAmount: _bookings[idx].creditsAmount,
-      notes: _bookings[idx].notes,
-      createdAt: _bookings[idx].createdAt,
-    );
+    _bookings[idx] = _bookings[idx].copyWith(status: status);
     notifyListeners();
+    await _db.collection('bookings').doc(bookingId).update({'status': status.name});
   }
 }
 
 // ─── Chat Provider ─────────────────────────────────────────────
 class ChatProvider extends ChangeNotifier {
+  final fs.FirebaseFirestore _db = fs.FirebaseFirestore.instance;
+
   List<Conversation> _conversations = [];
   bool _isLoading = false;
+  String? _userId;
 
   List<Conversation> get conversations => _conversations;
   bool get isLoading => _isLoading;
   int get totalUnread => _conversations.fold(0, (sum, c) => sum + c.unreadCount);
 
   void init(String userId) {
-    _conversations = MockConversations.getForUser(userId);
+    if (_userId == userId) return;
+    _userId = userId;
+    _load(userId);
+  }
+
+  void clear() {
+    _conversations = [];
+    _userId = null;
     notifyListeners();
+  }
+
+  Future<void> _load(String userId) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final snap = await _db
+          .collection('users').doc(userId).collection('conversations')
+          .orderBy('lastMessageAt', descending: true)
+          .get();
+      _conversations = await Future.wait(snap.docs.map((d) async {
+        final conv = Conversation.fromJson(d.data());
+        final convId = _conversationId(userId, conv.otherUserId);
+        final msgSnap = await _db
+            .collection('conversations').doc(convId).collection('messages')
+            .orderBy('sentAt')
+            .get();
+        final msgs = msgSnap.docs.map((m) => ChatMessage.fromJson(m.data())).toList();
+        return conv.copyWith(messages: msgs);
+      }));
+    } catch (e) {
+      debugPrint('ChatProvider._load error: $e');
+    }
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  // Deterministic conversation ID for two users
+  String _conversationId(String uid1, String uid2) {
+    final sorted = [uid1, uid2]..sort();
+    return '${sorted[0]}_${sorted[1]}';
   }
 
   Conversation? getConversation(String otherUserId) {
@@ -331,6 +429,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> sendMessage(String conversationId, String senderId, String text) async {
+    if (_userId == null) return;
     final idx = _conversations.indexWhere((c) => c.id == conversationId);
     if (idx == -1) return;
 
@@ -339,54 +438,48 @@ class ChatProvider extends ChangeNotifier {
       senderId: senderId,
       text: text,
       sentAt: DateTime.now(),
-      isRead: false,
+      isRead: true,
     );
 
-    final updated = _conversations[idx].copyWith(
+    _conversations[idx] = _conversations[idx].copyWith(
       messages: [..._conversations[idx].messages, msg],
       lastMessage: text,
       lastMessageAt: DateTime.now(),
     );
-    _conversations[idx] = updated;
     notifyListeners();
 
-    // Simulate reply after delay
-    await Future.delayed(const Duration(seconds: 2));
-    _simulateReply(conversationId, _conversations[idx].otherUserId);
-  }
+    final otherUserId = _conversations[idx].otherUserId;
+    final convDocId = _conversationId(_userId!, otherUserId);
 
-  void _simulateReply(String conversationId, String senderId) {
-    final replies = [
-      'Sounds great! 😊',
-      'Perfect, I\'ll be there!',
-      'That works for me.',
-      'Looking forward to it!',
-      'Can\'t wait to learn from you!',
-    ];
-    final reply = ChatMessage(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
-      senderId: senderId,
-      text: replies[DateTime.now().millisecond % replies.length],
-      sentAt: DateTime.now(),
-      isRead: false,
-    );
+    // Write message to shared conversation
+    await _db.collection('conversations').doc(convDocId)
+        .collection('messages').doc(msg.id).set(msg.toJson());
 
-    final idx = _conversations.indexWhere((c) => c.id == conversationId);
-    if (idx == -1) return;
-    _conversations[idx] = _conversations[idx].copyWith(
-      messages: [..._conversations[idx].messages, reply],
-      lastMessage: reply.text,
-      lastMessageAt: reply.sentAt,
-      unreadCount: _conversations[idx].unreadCount + 1,
-    );
-    notifyListeners();
+    // Update both users' conversation index
+    final convData = _conversations[idx].toJson();
+    await _db.collection('users').doc(_userId)
+        .collection('conversations').doc(otherUserId).set(convData);
+    // Update other user's copy (swap perspective)
+    final otherConvData = {
+      ...convData,
+      'otherUserId': _userId,
+      'otherUserName': convData['otherUserName'], // will be overwritten below
+      'unreadCount': fs.FieldValue.increment(1),
+    };
+    await _db.collection('users').doc(otherUserId)
+        .collection('conversations').doc(_userId).set(otherConvData, fs.SetOptions(merge: true));
   }
 
   void markAsRead(String conversationId) {
+    if (_userId == null) return;
     final idx = _conversations.indexWhere((c) => c.id == conversationId);
     if (idx == -1) return;
     _conversations[idx] = _conversations[idx].copyWith(unreadCount: 0);
     notifyListeners();
+    final otherUserId = _conversations[idx].otherUserId;
+    _db.collection('users').doc(_userId)
+        .collection('conversations').doc(otherUserId)
+        .update({'unreadCount': 0}).catchError((_) {});
   }
 
   Conversation startConversation(UserModel other) {
@@ -394,18 +487,25 @@ class ChatProvider extends ChangeNotifier {
     if (existing != null) return existing;
 
     final conv = Conversation(
-      id: 'conv_${other.id}',
+      id: other.id,
       otherUserId: other.id,
       otherUserName: other.name,
       otherUserAvatar: other.avatarUrl,
       otherUserOnline: other.isOnline,
-      lastMessage: 'Start a conversation...',
+      lastMessage: '',
       lastMessageAt: DateTime.now(),
       unreadCount: 0,
       messages: [],
     );
     _conversations.insert(0, conv);
     notifyListeners();
+
+    // Persist in background
+    if (_userId != null) {
+      _db.collection('users').doc(_userId)
+          .collection('conversations').doc(other.id)
+          .set(conv.toJson()).catchError((_) {});
+    }
     return conv;
   }
 }
